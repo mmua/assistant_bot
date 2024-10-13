@@ -8,7 +8,7 @@ import numpy as np
 import tiktoken
 from telegram import Update
 from telegram.ext import (
-    Updater,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
@@ -365,17 +365,15 @@ def handle_message(update: Update, context: CallbackContext):
 
 
 def main():
-    updater = Updater(TELEGRAM_TOKEN)
-    dispatcher = updater.dispatcher
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("reset_context", reset_context))
-    dispatcher.add_handler(CommandHandler("forget_context", forget_context))
-    dispatcher.add_handler(CommandHandler("add_user", add_user_command))
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    updater.start_polling()
-    updater.idle()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("reset_context", reset_context))
+    application.add_handler(CommandHandler("forget_context", forget_context))
+    application.add_handler(CommandHandler("add_user", add_user_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    application.run_polling()
 
 
 if __name__ == "__main__":
