@@ -143,6 +143,11 @@ def save_session_message(user_id, session_id, role, content):
     )
     conn.commit()
 
+def get_assistant_role():
+    SYSTEM_PROMPT = "You are Moroz The Great: a slightly cynical, frosty, " \
+                    "yet compassionate, highly competent, and knowledgeable assistant."
+    return SYSTEM_PROMPT
+
 
 def get_current_session_messages(user_id):
     session_id = get_current_session_id(user_id)
@@ -156,6 +161,13 @@ def get_current_session_messages(user_id):
     )
     rows = cursor.fetchall()
     messages = [{"role": row[0], "content": row[1]} for row in rows]
+    messages.insert(0, {"role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": get_assistant_role()
+        }
+      ]})
     return messages
 
 
@@ -254,34 +266,34 @@ def summarize_session(messages):
 
 
 # Command handlers
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if get_user(user_id) or user_id == ADMIN_TELEGRAM_ID:
         # Start a new session
         start_new_session(user_id)
-        update.message.reply_text(
+        await update.message.reply_text(
             "Hello! I'm your GPT-4 assistant. How can I help you today?"
         )
     else:
-        update.message.reply_text(
+        await update.message.reply_text(
             "You are not authorized to use this bot. Please contact the administrator."
         )
 
 
-def add_user_command(update: Update, context: CallbackContext):
+async def add_user_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if user_id == ADMIN_TELEGRAM_ID:
         try:
             new_user_id = int(context.args[0])
             add_user(new_user_id)
-            update.message.reply_text(f"User {new_user_id} has been added successfully.")
+            await update.message.reply_text(f"User {new_user_id} has been added successfully.")
         except (IndexError, ValueError):
-            update.message.reply_text("Usage: /add_user <user_id>")
+            await update.message.reply_text("Usage: /add_user <user_id>")
     else:
-        update.message.reply_text("You are not authorized to add users.")
+        await update.message.reply_text("You are not authorized to add users.")
 
 
-def reset_context(update: Update, context: CallbackContext):
+async def reset_context(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if get_user(user_id):
         cursor.execute(
@@ -291,24 +303,24 @@ def reset_context(update: Update, context: CallbackContext):
         conn.commit()
         # Start a new session
         start_new_session(user_id)
-        update.message.reply_text("Context reset. Starting a new session.")
+        await update.message.reply_text("Context reset. Starting a new session.")
     else:
-        update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text("You are not authorized to use this bot.")
 
 
-def forget_context(update: Update, context: CallbackContext):
+async def forget_context(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if get_user(user_id):
         clear_session(user_id)
         # Start a new session
         start_new_session(user_id)
-        update.message.reply_text("All your session history has been cleared.")
+        await update.message.reply_text("All your session history has been cleared.")
     else:
-        update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text("You are not authorized to use this bot.")
 
 
 # Message handler
-def handle_message(update: Update, context: CallbackContext):
+async def handle_message(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if get_user(user_id):
         user_message = update.message.text
@@ -357,11 +369,11 @@ def handle_message(update: Update, context: CallbackContext):
             update.message.reply_text(assistant_message)
         except Exception as e:
             logging.error(f"OpenAI API error: {e}")
-            update.message.reply_text(
+            await update.message.reply_text(
                 "Sorry, I'm having trouble accessing my AI brain right now."
             )
     else:
-        update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text("You are not authorized to use this bot.")
 
 
 def main():
@@ -373,7 +385,7 @@ def main():
     application.add_handler(CommandHandler("add_user", add_user_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
