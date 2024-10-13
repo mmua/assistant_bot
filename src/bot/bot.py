@@ -252,7 +252,7 @@ def summarize_session(messages):
             messages=summary_prompt,
             max_tokens=DEFAULT_CONTEXT_TOKENS,
         )
-        summary = response["choices"][0]["message"]["content"]
+        summary = response.choices[0].message.content
         return summary
     except Exception as e:
         logging.error(f"Error generating summary: {e}")
@@ -356,7 +356,7 @@ async def handle_message(update: Update, context: CallbackContext):
                 model=DEFAULT_OPENAI_MODEL,
                 messages=messages,
             )
-            assistant_message = response["choices"][0]["message"]["content"]
+            assistant_message = response.choices[0].message.content
             tokens_used = response["usage"]["total_tokens"]
             update_tokens(user_id, tokens_used)
             save_session_message(user_id, session_id, "assistant", assistant_message)
