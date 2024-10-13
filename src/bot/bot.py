@@ -380,8 +380,8 @@ def main():
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("reset_context", reset_context))
-    application.add_handler(CommandHandler("forget_context", forget_context))
+    application.add_handler(CommandHandler("next", reset_context))
+    application.add_handler(CommandHandler("forget", forget_context))
     application.add_handler(CommandHandler("add_user", add_user_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
