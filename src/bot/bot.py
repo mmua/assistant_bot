@@ -161,13 +161,7 @@ def get_current_session_messages(user_id):
     )
     rows = cursor.fetchall()
     messages = [{"role": row[0], "content": row[1]} for row in rows]
-    messages.insert(0, {"role": "system",
-      "content": [
-        {
-          "type": "text",
-          "text": get_assistant_role()
-        }
-      ]})
+    messages.insert(0, {"role": "system", "content": get_assistant_role()})
     return messages
 
 
