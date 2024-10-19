@@ -15,10 +15,10 @@ from telegram.ext import (
     CallbackContext,
 )
 
-from .llm import get_embedding
+from bot.llm import get_embedding
 
-from .bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
-from .database import add_user, clear_session, close_session, get_current_session_id, get_current_session_messages, get_user, get_user_messages, save_session_message, start_new_session, update_tokens
+from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
+from bot.database import add_user, clear_session, close_session, get_current_session_id, get_current_session_messages, get_user, get_user_messages, save_session_message, start_new_session, update_tokens
 
 # Set up logging
 logging.basicConfig(
@@ -192,10 +192,10 @@ async def handle_message(update: Update, context: CallbackContext):
                 messages=messages,
             )
             assistant_message = response.choices[0].message.content
-            tokens_used = response["usage"]["total_tokens"]
+            tokens_used = response.usage.total_tokens
             update_tokens(user_id, tokens_used)
             save_session_message(user_id, session_id, "assistant", assistant_message)
-            update.message.reply_text(assistant_message)
+            await update.message.reply_text(assistant_message)
         except Exception as e:
             logging.error(f"OpenAI API error: {e}")
             await update.message.reply_text(
