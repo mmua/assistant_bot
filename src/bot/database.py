@@ -3,8 +3,8 @@ import sqlite3
 import datetime
 import logging
 
-from .bot_messages import get_assistant_role
-from .llm import get_embedding
+from bot.bot_messages import get_assistant_role
+from bot.llm import get_embedding
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/bot.db")
 
@@ -147,7 +147,7 @@ def get_user_messages(user_id):
         (user_id,),
     )
     rows = cursor.fetchall()
-    relevant_messages = [(content, embedding) in rows]
+    relevant_messages = [(content, embedding) for content, embedding in rows]
     return relevant_messages
     
 def clear_session(user_id):

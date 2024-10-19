@@ -147,6 +147,10 @@ async def forget_context(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
 
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+
+def split_text(text, max_length=MAX_TELEGRAM_MESSAGE_LENGTH):
+    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
 
 # Message handler
 async def handle_message(update: Update, context: CallbackContext):
@@ -156,9 +160,6 @@ async def handle_message(update: Update, context: CallbackContext):
 
         # Get current session id
         session_id = get_current_session_id(user_id)
-
-        # Save user message
-        save_session_message(user_id, session_id, "user", user_message)
 
         # Get current session messages
         messages = get_current_session_messages(user_id)
@@ -182,6 +183,9 @@ async def handle_message(update: Update, context: CallbackContext):
             for content in relevant_contents:
                 messages.append({"role": "system", "content": "Relevant information: " + content})
 
+        # Save user message
+        save_session_message(user_id, session_id, "user", user_message)
+
         # Append user's current message
         messages.append({"role": "user", "content": user_message})
 
@@ -195,11 +199,14 @@ async def handle_message(update: Update, context: CallbackContext):
             tokens_used = response.usage.total_tokens
             update_tokens(user_id, tokens_used)
             save_session_message(user_id, session_id, "assistant", assistant_message)
-            await update.message.reply_text(assistant_message)
+            # After obtaining assistant_message
+            messages_to_send = split_text(assistant_message)
+            for msg in messages_to_send:
+                await update.message.reply_text(msg)
         except Exception as e:
             logging.error(f"OpenAI API error: {e}")
             await update.message.reply_text(
-                "Sorry, I'm having trouble accessing my AI brain right now."
+                get_bot_message(user_id, ERROR_TOKEN)
             )
     else:
         await update.message.reply_text("You are not authorized to use this bot.")
