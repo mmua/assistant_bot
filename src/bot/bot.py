@@ -15,7 +15,7 @@ from telegram.ext import (
     CallbackContext,
 )
 
-from bot.llm import get_embedding
+from bot.llm import get_embedding, split_text
 
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
 from bot.database import add_user, clear_session, close_session, get_current_session_id, get_current_session_messages, get_user, get_user_messages, save_session_message, start_new_session, update_tokens
@@ -33,6 +33,8 @@ ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 DEFAULT_SUMMARY_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_CONTEXT_TOKENS = 2000
+
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
 # Initialize OpenAI API
 openai.api_key = OPENAI_API_KEY
@@ -147,10 +149,6 @@ async def forget_context(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
 
-MAX_TELEGRAM_MESSAGE_LENGTH = 4096
-
-def split_text(text, max_length=MAX_TELEGRAM_MESSAGE_LENGTH):
-    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
 
 # Message handler
 async def handle_message(update: Update, context: CallbackContext):
@@ -200,7 +198,7 @@ async def handle_message(update: Update, context: CallbackContext):
             update_tokens(user_id, tokens_used)
             save_session_message(user_id, session_id, "assistant", assistant_message)
             # After obtaining assistant_message
-            messages_to_send = split_text(assistant_message)
+            messages_to_send = split_text(assistant_message, MAX_TELEGRAM_MESSAGE_LENGTH)
             for msg in messages_to_send:
                 await update.message.reply_text(msg)
         except Exception as e:
@@ -209,7 +207,7 @@ async def handle_message(update: Update, context: CallbackContext):
                 get_bot_message(user_id, ERROR_TOKEN)
             )
     else:
-        await update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
 
 
 def main():
