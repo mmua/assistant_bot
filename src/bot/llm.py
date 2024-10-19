@@ -1,7 +1,6 @@
 import json
 import logging
 import openai
-import textwrap
 
 def get_embedding(text):
     try:
@@ -13,33 +12,28 @@ def get_embedding(text):
         logging.error(f"Error getting embedding: {e}")
         return None
 
-def split_text(text, max_length):
-    import re
-
-    # Split the text into sentences using regex
-    sentence_endings = re.compile(r'(?<=[.!?]) +')
-    sentences = sentence_endings.split(text)
-
+def split_text(text, max_length=4096):
+    # Split the text into paragraphs using newlines
+    paragraphs = text.split('\n')
+    
     chunks = []
     current_chunk = ''
-
-    for sentence in sentences:
-        # Ensure the sentence ends with proper punctuation and whitespace
-        if not re.match(r'.*[.!?]$', sentence):
-            sentence += '.'
-
-        # Check if adding the sentence would exceed the max_length
-        if len(current_chunk) + len(sentence) + 1 > max_length:
-            # Wrap the current_chunk using textwrap to handle any long sentences
-            wrapped_chunk = '\n'.join(textwrap.wrap(current_chunk.strip(), width=80))
-            chunks.append(wrapped_chunk)
-            current_chunk = sentence
+    
+    for paragraph in paragraphs:
+        # Add the paragraph and a newline back to the current_chunk
+        # Ensure we don't add an extra newline at the end
+        new_chunk = (paragraph + '\n') if paragraph != paragraphs[-1] else paragraph
+        
+        # Check if adding the new paragraph exceeds max_length
+        if len(current_chunk) + len(new_chunk) > max_length:
+            # I assume both paragraphs fit within limit
+            chunks.append(current_chunk.rstrip('\n'))
+            current_chunk = new_chunk
         else:
-            current_chunk += ' ' + sentence
-
-    # Add the last chunk
+            current_chunk += new_chunk
+    
+    # Add any remaining text to chunks
     if current_chunk:
-        wrapped_chunk = '\n'.join(textwrap.wrap(current_chunk.strip(), width=80))
-        chunks.append(wrapped_chunk)
-
+        chunks.append(current_chunk.rstrip('\n'))
+    
     return chunks
