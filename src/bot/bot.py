@@ -15,6 +15,11 @@ from telegram.ext import (
     CallbackContext,
 )
 
+from .llm import get_embedding
+
+from .bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
+from .database import add_user, clear_session, close_session, get_current_session_id, get_current_session_messages, get_user, get_user_messages, save_session_message, start_new_session, update_tokens
+
 # Set up logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -32,166 +37,6 @@ DEFAULT_CONTEXT_TOKENS = 2000
 # Initialize OpenAI API
 openai.api_key = OPENAI_API_KEY
 
-# Database setup
-DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/bot.db")
-conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-cursor = conn.cursor()
-
-# Create tables if they don't exist
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    token_limit INTEGER,
-    tokens_used INTEGER DEFAULT 0,
-    daily_tokens_used INTEGER DEFAULT 0,
-    last_reset DATE
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS sessions (
-    user_id INTEGER,
-    start_date DATE,
-    end_date DATE,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    session_id INTEGER,
-    role TEXT,
-    content TEXT,
-    embedding TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(user_id),
-    FOREIGN KEY(session_id) REFERENCES sessions(rowid)
-)
-"""
-)
-conn.commit()
-
-# Helper functions
-def get_user(user_id):
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    return cursor.fetchone()
-
-
-def add_user(user_id):
-    cursor.execute(
-        "INSERT OR IGNORE INTO users (user_id, last_reset) VALUES (?, ?)",
-        (user_id, datetime.date.today()),
-    )
-    conn.commit()
-
-
-def reset_daily_tokens(user_id):
-    cursor.execute(
-        "UPDATE users SET daily_tokens_used = 0, last_reset = ? WHERE user_id = ?",
-        (datetime.date.today(), user_id),
-    )
-    conn.commit()
-
-
-def update_tokens(user_id, tokens):
-    cursor.execute("SELECT last_reset FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    last_reset = datetime.datetime.strptime(row[0], "%Y-%m-%d").date()
-    if last_reset < datetime.date.today():
-        reset_daily_tokens(user_id)
-    cursor.execute(
-        "UPDATE users SET tokens_used = tokens_used + ?, daily_tokens_used = daily_tokens_used + ? WHERE user_id = ?",
-        (tokens, tokens, user_id),
-    )
-    conn.commit()
-
-
-def start_new_session(user_id):
-    cursor.execute(
-        "INSERT INTO sessions (user_id, start_date) VALUES (?, ?)",
-        (user_id, datetime.date.today()),
-    )
-    conn.commit()
-    return cursor.lastrowid  # This will give us the session_id
-
-
-def get_current_session_id(user_id):
-    cursor.execute(
-        "SELECT rowid FROM sessions WHERE user_id = ? AND end_date IS NULL",
-        (user_id,),
-    )
-    row = cursor.fetchone()
-    if row:
-        return row[0]
-    else:
-        # Start a new session if none exists
-        return start_new_session(user_id)
-
-
-def save_session_message(user_id, session_id, role, content):
-    # Compute embedding for all messages
-    embedding = get_embedding(content)
-    cursor.execute(
-        "INSERT INTO messages (user_id, session_id, role, content, embedding) VALUES (?, ?, ?, ?, ?)",
-        (user_id, session_id, role, content, embedding),
-    )
-    conn.commit()
-
-def get_assistant_role():
-    SYSTEM_PROMPT = "You are Moroz The Great: a slightly cynical, frosty, " \
-                    "yet compassionate, highly competent, and knowledgeable assistant."
-    return SYSTEM_PROMPT
-
-
-def get_current_session_messages(user_id):
-    session_id = get_current_session_id(user_id)
-    cursor.execute(
-        """
-    SELECT role, content FROM messages
-    WHERE session_id = ?
-    ORDER BY id ASC
-    """,
-        (session_id,),
-    )
-    rows = cursor.fetchall()
-    messages = [{"role": row[0], "content": row[1]} for row in rows]
-    messages.insert(0, {"role": "system", "content": get_assistant_role()})
-    return messages
-
-
-def clear_session(user_id):
-    session_id = get_current_session_id(user_id)
-    cursor.execute(
-        """
-    DELETE FROM messages WHERE session_id = ?
-    """,
-        (session_id,),
-    )
-    cursor.execute(
-        """
-    DELETE FROM sessions WHERE rowid = ?
-    """,
-        (session_id,),
-    )
-    conn.commit()
-
-
-def get_embedding(text):
-    try:
-        embedding = openai.embeddings.create(
-            input=[text], model="text-embedding-3-small"
-        ).data[0].embedding
-        return json.dumps(embedding)
-    except Exception as e:
-        logging.error(f"Error getting embedding: {e}")
-        return None
-
 
 def cosine_similarity(a, b):
     a = np.array(a)
@@ -200,21 +45,14 @@ def cosine_similarity(a, b):
 
 
 def get_relevant_messages(user_id, user_input_embedding, top_n=5):
-    cursor.execute(
-        """
-    SELECT content, embedding FROM messages
-    WHERE user_id = ? AND embedding IS NOT NULL
-    """,
-        (user_id,),
-    )
-    rows = cursor.fetchall()
+    rows = get_user_messages(user_id)
     relevant_messages = []
     for content, embedding_json in rows:
         embedding = json.loads(embedding_json)
         similarity = cosine_similarity(user_input_embedding, embedding)
         relevant_messages.append((similarity, content))
     relevant_messages.sort(reverse=True)
-    return [content for similarity, content in relevant_messages[:top_n]]
+    return [content for _, content in relevant_messages[:top_n]]
 
 
 def num_tokens_from_messages(messages, model=DEFAULT_OPENAI_MODEL):
@@ -235,6 +73,7 @@ def num_tokens_from_messages(messages, model=DEFAULT_OPENAI_MODEL):
 
 def summarize_session(messages):
     try:
+        logging.debug("summarize session")
         summary_prompt = [
             {
                 "role": "system",
@@ -266,11 +105,11 @@ async def start(update: Update, context: CallbackContext):
         # Start a new session
         start_new_session(user_id)
         await update.message.reply_text(
-            "Hello! I'm your GPT-4 assistant. How can I help you today?"
+            get_bot_message(user_id, START_TOKEN)
         )
     else:
         await update.message.reply_text(
-            "You are not authorized to use this bot. Please contact the administrator."
+            get_bot_message(user_id, UNAUTHORIZED_TOKEN)
         )
 
 
@@ -280,7 +119,7 @@ async def add_user_command(update: Update, context: CallbackContext):
         try:
             new_user_id = int(context.args[0])
             add_user(new_user_id)
-            await update.message.reply_text(f"User {new_user_id} has been added successfully.")
+            await update.message.reply_text(get_bot_message(user_id, ADD_USER_TOKEN))
         except (IndexError, ValueError):
             await update.message.reply_text("Usage: /add_user <user_id>")
     else:
@@ -290,16 +129,12 @@ async def add_user_command(update: Update, context: CallbackContext):
 async def reset_context(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if get_user(user_id):
-        cursor.execute(
-            "UPDATE sessions SET end_date = ? WHERE user_id = ? AND end_date IS NULL",
-            (datetime.date.today(), user_id),
-        )
-        conn.commit()
+        close_session(user_id)
         # Start a new session
         start_new_session(user_id)
-        await update.message.reply_text("Context reset. Starting a new session.")
+        await update.message.reply_text(get_bot_message(user_id, NEXT_TOKEN))
     else:
-        await update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
 
 
 async def forget_context(update: Update, context: CallbackContext):
@@ -308,9 +143,9 @@ async def forget_context(update: Update, context: CallbackContext):
         clear_session(user_id)
         # Start a new session
         start_new_session(user_id)
-        await update.message.reply_text("All your session history has been cleared.")
+        await update.message.reply_text(get_bot_message(user_id, FORGET_TOKEN))
     else:
-        await update.message.reply_text("You are not authorized to use this bot.")
+        await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
 
 
 # Message handler
