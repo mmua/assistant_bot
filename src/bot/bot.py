@@ -14,7 +14,7 @@ from telegram.ext import (
     CallbackContext,
 )
 
-from bot.llm import split_text, DEFAULT_OPENAI_MODEL
+from bot.llm import cosine_similarity, split_text, DEFAULT_OPENAI_MODEL
 from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
 from bot.database import add_user, clear_session, close_session, get_user, get_user_messages, start_new_session, update_tokens
@@ -23,6 +23,17 @@ from bot.database import add_user, clear_session, close_session, get_user, get_u
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+
+def get_relevant_messages(user_id, user_input_embedding, top_n=5, threshold=0.7):
+    rows = get_user_messages(user_id)
+    relevant_messages = []
+    for content, embedding_json in rows:
+        embedding = json.loads(embedding_json)
+        similarity = cosine_similarity(user_input_embedding, embedding)
+        if similarity >= threshold:
+            relevant_messages.append((similarity, content))
+    relevant_messages.sort(reverse=True)
+    return [content for _, content in relevant_messages[:top_n]]
 
 # Load environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")

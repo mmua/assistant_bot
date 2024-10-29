@@ -4,9 +4,6 @@ import numpy as np
 import openai
 import tiktoken
 
-from bot.database import get_user_messages
-
-
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 
 
@@ -67,15 +64,3 @@ def num_tokens_from_messages(messages, model=DEFAULT_OPENAI_MODEL):
                 num_tokens += -1  # role is always required and always 1 token
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return num_tokens
-
-
-def get_relevant_messages(user_id, user_input_embedding, top_n=5, threshold=0.7):
-    rows = get_user_messages(user_id)
-    relevant_messages = []
-    for content, embedding_json in rows:
-        embedding = json.loads(embedding_json)
-        similarity = cosine_similarity(user_input_embedding, embedding)
-        if similarity >= threshold:
-            relevant_messages.append((similarity, content))
-    relevant_messages.sort(reverse=True)
-    return [content for _, content in relevant_messages[:top_n]]
