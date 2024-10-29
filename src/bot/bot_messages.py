@@ -5,7 +5,7 @@ import random
 START_TOKEN = "start"
 FORGET_TOKEN = "forget"
 NEXT_TOKEN = "next"
-ADD_USER_TOKEN = "next"
+ADD_USER_TOKEN = "add_user"
 ERROR_TOKEN = "error"
 UNAUTHORIZED_TOKEN = "unauthorized"
 

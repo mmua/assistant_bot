@@ -5,7 +5,6 @@ import logging
 import datetime
 import openai
 import numpy as np
-import tiktoken
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -15,10 +14,10 @@ from telegram.ext import (
     CallbackContext,
 )
 
-from bot.llm import get_embedding, num_tokens_from_messages, split_text
-from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext, summarize_session
+from bot.llm import split_text, DEFAULT_OPENAI_MODEL
+from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
-from bot.database import add_user, clear_session, close_session, get_current_session_id, get_current_session_messages, get_user, get_user_messages, save_session_message, start_new_session, update_tokens
+from bot.database import add_user, clear_session, close_session, get_user, get_user_messages, start_new_session, update_tokens
 
 # Set up logging
 logging.basicConfig(
@@ -29,8 +28,6 @@ logging.basicConfig(
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
-
-DEFAULT_OPENAI_MODEL = "gpt-4o"
 
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 

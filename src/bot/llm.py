@@ -1,6 +1,10 @@
 import json
 import logging
 import openai
+import tiktoken
+
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+
 
 def get_embedding(text):
     try:
