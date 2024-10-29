@@ -35,24 +35,6 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 openai.api_key = OPENAI_API_KEY
 
 
-def cosine_similarity(a, b):
-    a = np.array(a)
-    b = np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-
-def get_relevant_messages(user_id, user_input_embedding, top_n=5, threshold=0.7):
-    rows = get_user_messages(user_id)
-    relevant_messages = []
-    for content, embedding_json in rows:
-        embedding = json.loads(embedding_json)
-        similarity = cosine_similarity(user_input_embedding, embedding)
-        if similarity >= threshold:
-            relevant_messages.append((similarity, content))
-    relevant_messages.sort(reverse=True)
-    return [content for _, content in relevant_messages[:top_n]]
-
-
 # Command handlers
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
