@@ -37,3 +37,18 @@ def split_text(text, max_length=4096):
         chunks.append(current_chunk.rstrip('\n'))
     
     return chunks
+
+def num_tokens_from_messages(messages, model=DEFAULT_OPENAI_MODEL):
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = 0
+    for message in messages:
+        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        for key, value in message.items():
+            num_tokens += len(encoding.encode(value[1]))
+            if key[0] == "name":  # if there's a name, the role is omitted
+                num_tokens += -1  # role is always required and always 1 token
+    num_tokens += 2  # every reply is primed with <im_start>assistant
+    return num_tokens
