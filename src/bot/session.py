@@ -3,13 +3,25 @@ import logging
 
 import openai
 from bot.bot import get_relevant_messages
-from bot.database import get_current_session_id, get_current_session_messages, save_session_message
-from bot.llm import get_embedding, num_tokens_from_messages
+from bot.database import get_current_session_id, get_current_session_messages, get_user_messages, save_session_message
+from bot.llm import get_embedding, num_tokens_from_messages, cosine_similarity
 
 
 DEFINE_MIN_CONTEXT_LENGTH = 300
 DEFAULT_CONTEXT_TOKENS = 2000
 DEFAULT_SUMMARY_OPENAI_MODEL = "gpt-4o-mini"
+
+
+def get_relevant_messages(user_id, user_input_embedding, top_n=5, threshold=0.7):
+    rows = get_user_messages(user_id)
+    relevant_messages = []
+    for content, embedding_json in rows:
+        embedding = json.loads(embedding_json)
+        similarity = cosine_similarity(user_input_embedding, embedding)
+        if similarity >= threshold:
+            relevant_messages.append((similarity, content))
+    relevant_messages.sort(reverse=True)
+    return [content for _, content in relevant_messages[:top_n]]
 
 
 def summarize_session(messages):

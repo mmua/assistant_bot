@@ -24,17 +24,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-def get_relevant_messages(user_id, user_input_embedding, top_n=5, threshold=0.7):
-    rows = get_user_messages(user_id)
-    relevant_messages = []
-    for content, embedding_json in rows:
-        embedding = json.loads(embedding_json)
-        similarity = cosine_similarity(user_input_embedding, embedding)
-        if similarity >= threshold:
-            relevant_messages.append((similarity, content))
-    relevant_messages.sort(reverse=True)
-    return [content for _, content in relevant_messages[:top_n]]
-
 # Load environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
