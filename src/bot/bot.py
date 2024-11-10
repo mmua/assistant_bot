@@ -110,7 +110,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # OpenAI API call
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model=DEFAULT_OPENAI_MODEL,
             messages=session_context.messages,
         )

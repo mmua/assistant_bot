@@ -2,7 +2,6 @@ import json
 import logging
 
 import openai
-from bot.bot import get_relevant_messages
 from bot.database import get_current_session_id, get_current_session_messages, get_user_messages, save_session_message
 from bot.llm import get_embedding, num_tokens_from_messages, cosine_similarity
 
