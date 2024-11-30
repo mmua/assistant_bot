@@ -5,6 +5,7 @@ import openai
 import tiktoken
 
 DEFAULT_OPENAI_MODEL = "gpt-4o"
+DEFAULT_OPENAI_MINI_MODEL = "gpt-4o-mini"
 
 
 def cosine_similarity(a, b):
@@ -22,6 +23,23 @@ def get_embedding(text):
     except Exception as e:
         logging.error(f"Error getting embedding: {e}")
         return None
+
+
+async def clean_transcript(text: str, model="DEFAULT_OPENAI_MINI_MODEL") -> str:
+    """Clean transcript from common spoken artifacts."""
+    try:
+        response = await openai.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Clean the following text from common spoken artifacts (um, uh, like, you know, etc) and correct any grammar without changing the meaning. Keep the cleaned text natural and conversational. Keep the language original."},
+                {"role": "user", "content": text}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logging.error(f"Error cleaning transcript: {e}")
+        return text
+
 
 def split_text(text, max_length=4096):
     # Split the text into paragraphs using newlines
