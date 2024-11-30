@@ -203,6 +203,9 @@ async def handle_voice(update: Update, context: CallbackContext):
 
     if is_forwarded:
         author = get_forwarded_message_author(update)
+        # Initialize session context
+        session_context = SessionContext(user_id)
+        session_context.save_message("user", f"{author} сказал:\n\n{transcript}")
         await update.message.reply_text(random.choice([
             f"Ah! Through the frost, I hear {author}'s words:\n{transcript}",
             f"The winter winds carry {author}'s message:\n{transcript}",
@@ -210,7 +213,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         ]))
     else:
         cleaned_transcript = await clean_transcript(transcript)
-        await update.message.reply_text(f"Transcript:\n{transcript}")
+        await update.message.reply_text(f"Вот, что я услышал:\n{transcript}")
         await handle_message(update, context, override_text=cleaned_transcript)
 
 
