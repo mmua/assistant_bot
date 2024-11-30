@@ -63,10 +63,10 @@ async def download_voice_message(voice: Voice, context: CallbackContext) -> Opti
         logging.error(f"Error downloading voice message: {e}")
         return None
 
-async def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
+def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
     """Transcribe audio file using OpenAI Whisper."""
     try:
-        transcript = await openai.audio.transcriptions.create(
+        transcript = openai.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
             language="ru"
@@ -192,7 +192,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         return
 
     # Transcribe the audio
-    transcript = await transcribe_audio(audio_fd)  # This will also clean up the temp file
+    transcript = transcribe_audio(audio_fd)  # This will also clean up the temp file
     if not transcript:
         await update.message.reply_text(random.choice([
             "By the frozen winds! Your message remains enigmatic to my ears. Might you try again?",
