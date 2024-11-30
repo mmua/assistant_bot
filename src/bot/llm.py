@@ -25,7 +25,7 @@ def get_embedding(text):
         return None
 
 
-async def clean_transcript(text: str, model="DEFAULT_OPENAI_MINI_MODEL") -> str:
+async def clean_transcript(text: str, model=DEFAULT_OPENAI_MINI_MODEL) -> str:
     """Clean transcript from common spoken artifacts."""
     try:
         response = await openai.chat.completions.create(

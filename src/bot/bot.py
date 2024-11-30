@@ -91,19 +91,25 @@ def get_forwarded_message_author(update: Update) -> str:
     Returns:
         str: A formatted string containing available author information
     """
-    # Get author information
-    if update.message.forward_from:
-        # If the original sender's privacy settings allow it
-        author = f"{update.message.forward_from.first_name}"
-        if update.message.forward_from.last_name:
-            author += f" {update.message.forward_from.last_name}"
-        if update.message.forward_from.username:
-            author += f" (@{update.message.forward_from.username})"
-    elif update.message.forward_sender_name:
-        # If the sender has restricted privacy settings
-        author = update.message.forward_sender_name
+    forward_origin = update.message.forward_origin
+    if forward_origin:
+        if forward_origin.type == "user":
+            # Regular user
+            author = f"{forward_origin.sender_user.first_name}"
+            if forward_origin.sender_user.last_name:
+                author += f" {forward_origin.sender_user.last_name}"
+            if forward_origin.sender_user.username:
+                author += f" (@{forward_origin.sender_user.username})"
+        elif forward_origin.type == "chat":
+            # Channel or group
+            author = forward_origin.chat.title
+        elif forward_origin.type == "hidden_user":
+            # User who chose to remain anonymous
+            author = "Hidden User"
+        else:
+            author = "Unknown sender"
     else:
-        author = "Unknown sender"
+        author = None
     return author
 
 
@@ -166,7 +172,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
         return
 
-    is_forwarded = update.message.forward_date is not None
+    is_forwarded = update.message.forward_origin is not None
     
     # Send initial acknowledgment
     await update.message.reply_text(random.choice([
