@@ -21,8 +21,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "python-telegram-bot==21.6",
-    "openai==1.51.2",
+    "python-telegram-bot==21.7",
+    "openai==1.55.3",
     "numpy==2.0.2",
     "tiktoken==0.8.0",
     "python-dotenv==1.0.1",
