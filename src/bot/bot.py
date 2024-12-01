@@ -39,7 +39,7 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 openai.api_key = OPENAI_API_KEY
 
 # Initialize Salute Speech client
-salute = SaluteSpeechClient(client_credentials=os.getenv("SBER_SPEECH_API_KEY"))
+salute = SaluteSpeechClient(client_credentials=SBER_SPEECH_API_KEY)
 
 async def download_voice_message(voice: Voice, context: CallbackContext) -> Optional[str]:
     """Download voice message and convert it to mp3."""
@@ -51,17 +51,29 @@ async def download_voice_message(voice: Voice, context: CallbackContext) -> Opti
             # Create temp files inside the temporary directory
             temp_dir_path = Path(temp_dir)
             oga_path = temp_dir_path / f"{voice.file_id}.oga"
-            mp3_path = temp_dir_path / f"{voice.file_id}.mp3"
+            wav_path = temp_dir_path / f"{voice.file_id}.wav"
             
             # Download the voice file
             await voice_file.download_to_drive(oga_path)
             
             # Convert to mp3 using pydub
             audio = AudioSegment.from_ogg(str(oga_path))
-            audio.export(str(mp3_path), format="mp3")
-            
-            # Return the MP3 file handle
-            return open(mp3_path, "rb")
+            if audio.channels > 1:
+                audio = audio.set_channels(1)
+
+            # Export as WAV with specific parameters
+            audio.export(
+                str(wav_path),
+                format="wav",
+                parameters=[
+                    "-ac", "1",     # Force mono
+                    "-ar", "16000", # Force 16kHz
+                    "-acodec", "pcm_s16le"  # 16-bit PCM encoding
+                ]
+            )
+
+            # Return the WAV file handle
+            return open(wav_path, "rb")
             
     except Exception as e:
         logging.error(f"Error downloading voice message: {e}")
