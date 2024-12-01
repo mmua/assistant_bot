@@ -2,6 +2,7 @@ import os
 import logging
 import random
 import openai
+from salute_speech.speech_recognition import SaluteSpeechClient
 import tempfile
 from pathlib import Path
 from typing import BinaryIO, Optional
@@ -29,6 +30,7 @@ logging.basicConfig(
 # Load environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SBER_SPEECH_API_KEY = os.getenv("SBER_SPEECH_API_KEY")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
 
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
@@ -36,6 +38,8 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 # Initialize OpenAI API
 openai.api_key = OPENAI_API_KEY
 
+# Initialize Salute Speech client
+salute = SaluteSpeechClient(client_credentials=os.getenv("SBER_SPEECH_API_KEY"))
 
 async def download_voice_message(voice: Voice, context: CallbackContext) -> Optional[str]:
     """Download voice message and convert it to mp3."""
@@ -63,13 +67,14 @@ async def download_voice_message(voice: Voice, context: CallbackContext) -> Opti
         logging.error(f"Error downloading voice message: {e}")
         return None
 
-def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
+async def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
     """Transcribe audio file using OpenAI Whisper."""
     try:
-        transcript = openai.audio.transcriptions.create(
-            model="whisper-1",
+        transcript = await salute.audio.transcriptions.create(
             file=audio_file,
-            language="ru"
+            model="general",  # Default model
+            language="ru-RU",
+            response_format="text"
         )
         return transcript.text
     except Exception as e:
@@ -129,6 +134,19 @@ async def start(update: Update, context: CallbackContext):
 
 
 async def add_user_command(update: Update, context: CallbackContext):
+    """
+    Handle /add_user command to add new authorized users to the bot.
+
+    Can only be executed by the admin user (specified by ADMIN_TELEGRAM_ID).
+    Takes a single argument - the Telegram user ID to authorize.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context object containing command arguments
+
+    Example:
+        /add_user 123456789
+    """
     user_id = update.effective_user.id
     if user_id == ADMIN_TELEGRAM_ID:
         try:
@@ -142,6 +160,20 @@ async def add_user_command(update: Update, context: CallbackContext):
 
 
 async def reset_context(update: Update, context: CallbackContext):
+    """
+    Handle /next command to preserve and reset the current conversation context.
+
+    Saves the current conversation session and starts a new one, letting the user
+    begin a fresh conversation while maintaining history. Only works for authorized users.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context for the command handler
+
+    Note:
+        The old session is closed but preserved in history before starting
+        a new session. Unlike /forget, this command retains the conversation history.
+    """
     user_id = update.effective_user.id
     if get_user(user_id):
         close_session(user_id)
@@ -153,6 +185,21 @@ async def reset_context(update: Update, context: CallbackContext):
 
 
 async def forget_context(update: Update, context: CallbackContext):
+    """
+    Handle /forget command to completely clear the conversation history and start fresh.
+
+    Deletes all conversation history for the user and starts a new session.
+    Only works for authorized users. Unlike /next, this command removes all
+    previous context rather than preserving it.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context for the command handler
+
+    Note:
+        This command permanently deletes the user's conversation history.
+        For preserving history while starting a new conversation, use /next instead.
+    """
     user_id = update.effective_user.id
     if get_user(user_id):
         clear_session(user_id)
@@ -165,7 +212,30 @@ async def forget_context(update: Update, context: CallbackContext):
 
 # handle voice messages
 async def handle_voice(update: Update, context: CallbackContext):
-    """Handle voice messages."""
+    """
+    Process voice messages sent to the bot, handling both direct and forwarded messages.
+
+    For direct voice messages:
+    - Downloads and transcribes the audio using Whisper API
+    - Cleans the transcript from speech artifacts
+    - Processes the cleaned text through the bot's conversation flow
+
+    For forwarded voice messages:
+    - Transcribes the audio and attributes it to the original sender
+    - Saves the attributed transcript to the conversation history
+    - Displays the transcript without further processing
+
+    Args:
+        update (Update): The Telegram update containing the voice message
+        context (CallbackContext): The context for handling the message
+
+    Note:
+        - Requires user authorization
+        - Temporary files are automatically cleaned up after transcription
+        - Progress and error messages maintain the bot's personality
+        - For forwarded messages, preserves the original speaker's attribution
+    """
+
     user_id = update.effective_user.id
     
     if not get_user(user_id):
@@ -192,7 +262,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         return
 
     # Transcribe the audio
-    transcript = transcribe_audio(audio_fd)  # This will also clean up the temp file
+    transcript = await transcribe_audio(audio_fd)
     if not transcript:
         await update.message.reply_text(random.choice([
             "By the frozen winds! Your message remains enigmatic to my ears. Might you try again?",
@@ -219,6 +289,31 @@ async def handle_voice(update: Update, context: CallbackContext):
 
 # Message handler
 async def handle_message(update: Update, context: CallbackContext, override_text: str = None):
+    """
+    Process text messages and generate responses using the OpenAI chat API.
+
+    Manages the conversation flow by:
+    - Verifying user authorization
+    - Maintaining conversation context and history
+    - Summarizing long conversations when needed
+    - Adding relevant context from embeddings
+    - Generating and sending AI responses
+
+    Args:
+        update (Update): The Telegram update containing the message
+        context (CallbackContext): The context for handling the message
+        override_text (str, optional): Text to process instead of the update's message text.
+            Used for processing cleaned voice transcripts or other modified inputs.
+
+    Notes:
+        - Uses SessionContext to manage conversation state and history
+        - Automatically splits long responses to comply with Telegram's message length limits
+        - Updates token usage statistics for the user
+        - Handles API errors gracefully with user-friendly messages
+
+    Raises:
+        Logs but doesn't raise OpenAI API errors, sending an error message to the user instead
+    """
     user_id = update.effective_user.id
 
     # Check if the user is authorized

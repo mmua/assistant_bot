@@ -26,7 +26,8 @@ dependencies = [
     "numpy==2.0.2",
     "tiktoken==0.8.0",
     "python-dotenv==1.0.1",
-    "pydub==0.25.1"
+    "pydub==0.25.1",
+    "salute-speech==1.2.2"
 ]
 
 [project.urls]
