@@ -1,14 +1,8 @@
 import os
 import logging
-import random
 import openai
-from salute_speech.speech_recognition import SaluteSpeechClient
-import tempfile
-from pathlib import Path
-from typing import BinaryIO, Optional
-from pydub import AudioSegment
 
-from telegram import Update, Voice
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -21,6 +15,7 @@ from bot.llm import split_text, clean_transcript, DEFAULT_OPENAI_MODEL
 from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
 from bot.database import add_user, clear_session, close_session, get_user, get_user_messages, start_new_session, update_tokens
+from bot.voice_handler import VoiceHandler
 
 # Set up logging
 logging.basicConfig(
@@ -38,64 +33,9 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 # Initialize OpenAI API
 openai.api_key = OPENAI_API_KEY
 
-# Initialize Salute Speech client
-salute = SaluteSpeechClient(client_credentials=SBER_SPEECH_API_KEY)
 
-async def download_voice_message(voice: Voice, context: CallbackContext) -> Optional[str]:
-    """Download voice message and convert it to mp3."""
-    try:
-        voice_file = await context.bot.get_file(voice.file_id)
-        
-        # Create a temporary directory that will be automatically cleaned up
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create temp files inside the temporary directory
-            temp_dir_path = Path(temp_dir)
-            oga_path = temp_dir_path / f"{voice.file_id}.oga"
-            wav_path = temp_dir_path / f"{voice.file_id}.wav"
-            
-            # Download the voice file
-            await voice_file.download_to_drive(oga_path)
-            
-            # Convert to mp3 using pydub
-            audio = AudioSegment.from_ogg(str(oga_path))
-            if audio.channels > 1:
-                audio = audio.set_channels(1)
-
-            # Export as WAV with specific parameters
-            audio.export(
-                str(wav_path),
-                format="wav",
-                parameters=[
-                    "-ac", "1",     # Force mono
-                    "-ar", "16000", # Force 16kHz
-                    "-acodec", "pcm_s16le"  # 16-bit PCM encoding
-                ]
-            )
-
-            # Return the WAV file handle
-            return open(wav_path, "rb")
-            
-    except Exception as e:
-        logging.error(f"Error downloading voice message: {e}")
-        return None
-
-async def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
-    """Transcribe audio file using OpenAI Whisper."""
-    try:
-        transcript = await salute.audio.transcriptions.create(
-            file=audio_file,
-            model="general",  # Default model
-            language="ru-RU",
-            response_format="text"
-        )
-        return transcript.text
-    except Exception as e:
-        logging.error(f"Error transcribing audio: {e}")
-        return None
-    finally:
-        # Clean up the temporary file
-        if audio_file:
-            audio_file.close()
+# Initialize Voice Handler
+voice_handler = VoiceHandler(SBER_SPEECH_API_KEY)
 
 
 def get_forwarded_message_author(update: Update) -> str:
@@ -247,7 +187,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         - Progress and error messages maintain the bot's personality
         - For forwarded messages, preserves the original speaker's attribution
     """
-
+    
     user_id = update.effective_user.id
     
     if not get_user(user_id):
@@ -256,43 +196,23 @@ async def handle_voice(update: Update, context: CallbackContext):
 
     is_forwarded = update.message.forward_origin is not None
     
-    # Send initial acknowledgment
-    await update.message.reply_text(random.choice([
-        "Ah, a voice carried by the winter winds! Let me decode its message...",
-        "The frost crystallizes your words. Give me but a moment to interpret them...",
-        "I hear your call through the snowstorm. Allow me to translate it...",
-    ]))
+    await update.message.reply_text(voice_handler.get_progress_message())
 
-    # Download and process the voice message
-    audio_fd = await download_voice_message(update.message.voice, context)
+    audio_fd = await voice_handler.download_voice_message(update.message.voice, context)
     if not audio_fd:
-        await update.message.reply_text(random.choice([
-            "Alas! The winter winds have scattered your message to the four corners. Might you try again?",
-            "Oh dear, the frost has claimed your words before I could grasp them. Another attempt, perhaps?",
-            "My frozen friend, your message was lost in the blizzard. Would you share it once more?",
-        ]))
+        await update.message.reply_text(voice_handler.get_error_message())
         return
 
-    # Transcribe the audio
-    transcript = await transcribe_audio(audio_fd)
-    if not transcript:
-        await update.message.reply_text(random.choice([
-            "By the frozen winds! Your message remains enigmatic to my ears. Might you try again?",
-            "The bitter cold has obscured your words from my understanding. Perhaps another attempt?",
-            "Even my winter magic couldn't unveil your message this time. Would you grace me with another try?",
-        ]))
+    transcript = await voice_handler.transcribe_audio(audio_fd)
+    if transcript is None:
+        await update.message.reply_text(voice_handler.get_transcription_error_message())
         return
 
     if is_forwarded:
         author = get_forwarded_message_author(update)
-        # Initialize session context
         session_context = SessionContext(user_id)
         session_context.save_message("user", f"{author} сказал:\n\n{transcript}")
-        await update.message.reply_text(random.choice([
-            f"Ah! Through the frost, I hear {author}'s words:\n{transcript}",
-            f"The winter winds carry {author}'s message:\n{transcript}",
-            f"From the frozen depths, {author} speaks:\n{transcript}",
-        ]))
+        await update.message.reply_text(voice_handler.get_forwarded_message(author, transcript))
     else:
         cleaned_transcript = await clean_transcript(transcript)
         await update.message.reply_text(f"Вот, что я услышал:\n{transcript}")
