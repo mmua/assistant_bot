@@ -214,7 +214,7 @@ async def handle_voice(update: Update, context: CallbackContext):
         session_context.save_message("assistant", f"{author} сказал:\n\n{transcript}")
         await update.message.reply_text(voice_handler.get_forwarded_message(author, transcript))
     else:
-        cleaned_transcript = await clean_transcript(transcript)
+        cleaned_transcript = clean_transcript(transcript)
         await update.message.reply_text(f"Вот, что я услышал:\n{transcript}")
         await handle_message(update, context, override_text=cleaned_transcript)
 
