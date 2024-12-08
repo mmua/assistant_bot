@@ -1,13 +1,8 @@
 import os
 import logging
-import random
 import openai
-import tempfile
-from pathlib import Path
-from typing import BinaryIO, Optional
-from pydub import AudioSegment
 
-from telegram import Update, Voice
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -20,6 +15,7 @@ from bot.llm import split_text, clean_transcript, DEFAULT_OPENAI_MODEL
 from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
 from bot.database import add_user, clear_session, close_session, get_user, get_user_messages, start_new_session, update_tokens
+from bot.voice_handler import VoiceHandler
 
 # Set up logging
 logging.basicConfig(
@@ -29,6 +25,7 @@ logging.basicConfig(
 # Load environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SBER_SPEECH_API_KEY = os.getenv("SBER_SPEECH_API_KEY")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
 
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
@@ -37,48 +34,8 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 openai.api_key = OPENAI_API_KEY
 
 
-async def download_voice_message(voice: Voice, context: CallbackContext) -> Optional[str]:
-    """Download voice message and convert it to mp3."""
-    try:
-        voice_file = await context.bot.get_file(voice.file_id)
-        
-        # Create a temporary directory that will be automatically cleaned up
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create temp files inside the temporary directory
-            temp_dir_path = Path(temp_dir)
-            oga_path = temp_dir_path / f"{voice.file_id}.oga"
-            mp3_path = temp_dir_path / f"{voice.file_id}.mp3"
-            
-            # Download the voice file
-            await voice_file.download_to_drive(oga_path)
-            
-            # Convert to mp3 using pydub
-            audio = AudioSegment.from_ogg(str(oga_path))
-            audio.export(str(mp3_path), format="mp3")
-            
-            # Return the MP3 file handle
-            return open(mp3_path, "rb")
-            
-    except Exception as e:
-        logging.error(f"Error downloading voice message: {e}")
-        return None
-
-async def transcribe_audio(audio_file: BinaryIO) -> Optional[str]:
-    """Transcribe audio file using OpenAI Whisper."""
-    try:
-        transcript = await openai.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            language="ru"
-        )
-        return transcript.text
-    except Exception as e:
-        logging.error(f"Error transcribing audio: {e}")
-        return None
-    finally:
-        # Clean up the temporary file
-        if audio_file:
-            audio_file.close()
+# Initialize Voice Handler
+voice_handler = VoiceHandler(SBER_SPEECH_API_KEY)
 
 
 def get_forwarded_message_author(update: Update) -> str:
@@ -129,6 +86,19 @@ async def start(update: Update, context: CallbackContext):
 
 
 async def add_user_command(update: Update, context: CallbackContext):
+    """
+    Handle /add_user command to add new authorized users to the bot.
+
+    Can only be executed by the admin user (specified by ADMIN_TELEGRAM_ID).
+    Takes a single argument - the Telegram user ID to authorize.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context object containing command arguments
+
+    Example:
+        /add_user 123456789
+    """
     user_id = update.effective_user.id
     if user_id == ADMIN_TELEGRAM_ID:
         try:
@@ -142,6 +112,20 @@ async def add_user_command(update: Update, context: CallbackContext):
 
 
 async def reset_context(update: Update, context: CallbackContext):
+    """
+    Handle /next command to preserve and reset the current conversation context.
+
+    Saves the current conversation session and starts a new one, letting the user
+    begin a fresh conversation while maintaining history. Only works for authorized users.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context for the command handler
+
+    Note:
+        The old session is closed but preserved in history before starting
+        a new session. Unlike /forget, this command retains the conversation history.
+    """
     user_id = update.effective_user.id
     if get_user(user_id):
         close_session(user_id)
@@ -153,6 +137,21 @@ async def reset_context(update: Update, context: CallbackContext):
 
 
 async def forget_context(update: Update, context: CallbackContext):
+    """
+    Handle /forget command to completely clear the conversation history and start fresh.
+
+    Deletes all conversation history for the user and starts a new session.
+    Only works for authorized users. Unlike /next, this command removes all
+    previous context rather than preserving it.
+
+    Args:
+        update (Update): The Telegram update containing the command
+        context (CallbackContext): The context for the command handler
+
+    Note:
+        This command permanently deletes the user's conversation history.
+        For preserving history while starting a new conversation, use /next instead.
+    """
     user_id = update.effective_user.id
     if get_user(user_id):
         clear_session(user_id)
@@ -165,7 +164,30 @@ async def forget_context(update: Update, context: CallbackContext):
 
 # handle voice messages
 async def handle_voice(update: Update, context: CallbackContext):
-    """Handle voice messages."""
+    """
+    Process voice messages sent to the bot, handling both direct and forwarded messages.
+
+    For direct voice messages:
+    - Downloads and transcribes the audio using Whisper API
+    - Cleans the transcript from speech artifacts
+    - Processes the cleaned text through the bot's conversation flow
+
+    For forwarded voice messages:
+    - Transcribes the audio and attributes it to the original sender
+    - Saves the attributed transcript to the conversation history
+    - Displays the transcript without further processing
+
+    Args:
+        update (Update): The Telegram update containing the voice message
+        context (CallbackContext): The context for handling the message
+
+    Note:
+        - Requires user authorization
+        - Temporary files are automatically cleaned up after transcription
+        - Progress and error messages maintain the bot's personality
+        - For forwarded messages, preserves the original speaker's attribution
+    """
+    
     user_id = update.effective_user.id
     
     if not get_user(user_id):
@@ -174,48 +196,55 @@ async def handle_voice(update: Update, context: CallbackContext):
 
     is_forwarded = update.message.forward_origin is not None
     
-    # Send initial acknowledgment
-    await update.message.reply_text(random.choice([
-        "Ah, a voice carried by the winter winds! Let me decode its message...",
-        "The frost crystallizes your words. Give me but a moment to interpret them...",
-        "I hear your call through the snowstorm. Allow me to translate it...",
-    ]))
+    await update.message.reply_text(voice_handler.get_progress_message())
 
-    # Download and process the voice message
-    audio_fd = await download_voice_message(update.message.voice, context)
+    audio_fd = await voice_handler.download_voice_message(update.message.voice, context)
     if not audio_fd:
-        await update.message.reply_text(random.choice([
-            "Alas! The winter winds have scattered your message to the four corners. Might you try again?",
-            "Oh dear, the frost has claimed your words before I could grasp them. Another attempt, perhaps?",
-            "My frozen friend, your message was lost in the blizzard. Would you share it once more?",
-        ]))
+        await update.message.reply_text(voice_handler.get_error_message())
         return
 
-    # Transcribe the audio
-    transcript = await transcribe_audio(audio_fd)  # This will also clean up the temp file
-    if not transcript:
-        await update.message.reply_text(random.choice([
-            "By the frozen winds! Your message remains enigmatic to my ears. Might you try again?",
-            "The bitter cold has obscured your words from my understanding. Perhaps another attempt?",
-            "Even my winter magic couldn't unveil your message this time. Would you grace me with another try?",
-        ]))
+    transcript = await voice_handler.transcribe_audio(audio_fd)
+    if transcript is None:
+        await update.message.reply_text(voice_handler.get_transcription_error_message())
         return
 
     if is_forwarded:
         author = get_forwarded_message_author(update)
-        await update.message.reply_text(random.choice([
-            f"Ah! Through the frost, I hear {author}'s words:\n{transcript}",
-            f"The winter winds carry {author}'s message:\n{transcript}",
-            f"From the frozen depths, {author} speaks:\n{transcript}",
-        ]))
+        session_context = SessionContext(user_id)
+        session_context.save_message("assistant", f"{author} сказал:\n\n{transcript}")
+        await update.message.reply_text(voice_handler.get_forwarded_message(author, transcript))
     else:
-        cleaned_transcript = await clean_transcript(transcript)
-        await update.message.reply_text(f"Transcript:\n{transcript}")
+        cleaned_transcript = clean_transcript(transcript)
+        await update.message.reply_text(f"Вот, что я услышал:\n{transcript}")
         await handle_message(update, context, override_text=cleaned_transcript)
-
 
 # Message handler
 async def handle_message(update: Update, context: CallbackContext, override_text: str = None):
+    """
+    Process text messages and generate responses using the OpenAI chat API.
+
+    Manages the conversation flow by:
+    - Verifying user authorization
+    - Maintaining conversation context and history
+    - Summarizing long conversations when needed
+    - Adding relevant context from embeddings
+    - Generating and sending AI responses
+
+    Args:
+        update (Update): The Telegram update containing the message
+        context (CallbackContext): The context for handling the message
+        override_text (str, optional): Text to process instead of the update's message text.
+            Used for processing cleaned voice transcripts or other modified inputs.
+
+    Notes:
+        - Uses SessionContext to manage conversation state and history
+        - Automatically splits long responses to comply with Telegram's message length limits
+        - Updates token usage statistics for the user
+        - Handles API errors gracefully with user-friendly messages
+
+    Raises:
+        Logs but doesn't raise OpenAI API errors, sending an error message to the user instead
+    """
     user_id = update.effective_user.id
 
     # Check if the user is authorized

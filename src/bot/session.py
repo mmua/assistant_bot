@@ -61,6 +61,7 @@ class SessionContext:
         return get_current_session_messages(self.user_id)
 
     def save_message(self, role, content):
+        logging.debug("save message: role: %s, content: %s", role, content)
         # Save message to the database
         save_session_message(self.user_id, self.session_id, role, content)
         # Append message to the session messages

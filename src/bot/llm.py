@@ -25,16 +25,19 @@ def get_embedding(text):
         return None
 
 
-async def clean_transcript(text: str, model=DEFAULT_OPENAI_MINI_MODEL) -> str:
+def clean_transcript(text: str, model=DEFAULT_OPENAI_MINI_MODEL) -> str:
     """Clean transcript from common spoken artifacts."""
     try:
-        response = await openai.chat.completions.create(
+        response = openai.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Clean the following text from common spoken artifacts (um, uh, like, you know, etc) and correct any grammar without changing the meaning. Keep the cleaned text natural and conversational. Keep the language original."},
+                {"role": "system", "content": """Ты — помощник, который очищает текст от лишних слов, паразитов и мусора, сохраняя стиль и суть исходного сообщения. Твоя задача — сделать текст согласованным и лаконичным, но не менять тональность или стиль автора. Вот текст для обработки:
+Пример:
+Разговорная реплика: «Эээ, ну короче, можешь, пожалуйста, типа помочь с этим, ну, как его, поиском минимального элемента в списке?»
+Очищенный текст: «Можешь помочь с поиском минимального элемента в списке?»"""},
                 {"role": "user", "content": text}
             ]
-        )
+            )
         return response.choices[0].message.content
     except Exception as e:
         logging.error(f"Error cleaning transcript: {e}")

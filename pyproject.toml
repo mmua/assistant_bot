@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "assistant-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Telegram bot powered by OpenAI's GPT-4o model."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -26,7 +26,8 @@ dependencies = [
     "numpy==2.0.2",
     "tiktoken==0.8.0",
     "python-dotenv==1.0.1",
-    "pydub==0.25.1"
+    "pydub==0.25.1",
+    "salute-speech==1.2.4"
 ]
 
 [project.urls]

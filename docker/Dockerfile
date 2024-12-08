@@ -1,17 +1,20 @@
-# Dockerfile
+FROM python:3.10-slim
 
-FROM python:3.12
+# Install ffmpeg with minimal additional files
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set work directory
 WORKDIR /usr/src/app
 
-# Copy requirements file
-COPY . ./
+# Copy just the requirements first to leverage Docker cache
+COPY pyproject.toml ./
 
-# Install dependencies
-RUN apt update && apt install -y ffmpeg && apt clean
+# Copy the rest of the application
+COPY . . 
 
-# Install dependencies
 RUN pip install --no-cache-dir .
 
 # Expose the port (if needed)
