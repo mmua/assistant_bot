@@ -2,12 +2,16 @@ import json
 import logging
 
 import openai
-from bot.database import get_current_session_id, get_current_session_messages, get_user_messages, save_session_message
+from bot.database.database import (
+    get_current_session_id, get_session_messages,
+    get_user_messages, save_session_message
+)
 from bot.llm import get_embedding, num_tokens_from_messages, cosine_similarity
 
 
 DEFINE_MIN_CONTEXT_LENGTH = 300
-DEFAULT_CONTEXT_TOKENS = 2000
+DEFAULT_CONTEXT_TOKENS = 20000
+DEFAULT_OUTPUT_TOKENS = 2000
 DEFAULT_SUMMARY_OPENAI_MODEL = "gpt-4o-mini"
 
 
@@ -41,7 +45,7 @@ def summarize_session(messages):
         response = openai.chat.completions.create(
             model=DEFAULT_SUMMARY_OPENAI_MODEL,
             messages=summary_prompt,
-            max_tokens=DEFAULT_CONTEXT_TOKENS,
+            max_completion_tokens=DEFAULT_OUTPUT_TOKENS,
         )
         summary = response.choices[0].message.content
         return summary
@@ -58,7 +62,7 @@ class SessionContext:
 
     def load_messages(self):
         # Get current session messages
-        return get_current_session_messages(self.user_id)
+        return get_session_messages(self.session_id)
 
     def save_message(self, role, content):
         logging.debug("save message: role: %s, content: %s", role, content)
@@ -92,6 +96,7 @@ class SessionContext:
         if user_input_embedding_json:
             user_input_embedding = json.loads(user_input_embedding_json)
             # Retrieve relevant messages from past sessions
+            assert False
             relevant_contents = get_relevant_messages(self.user_id, user_input_embedding)
             # Include relevant messages in context
             for content in relevant_contents:
