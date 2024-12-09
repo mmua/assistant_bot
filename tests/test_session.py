@@ -116,29 +116,27 @@ async def test_summarize_if_needed(user_context, monkeypatch):
     # assert "Summary" in messages[0]["content"]
 
 def test_add_relevant_information(user_context, db_session):
-    """Test adding relevant information based on embeddings"""
-    # Add some messages with mock embeddings
-    test_message = "Test message for embedding"
-    mock_embedding = json.dumps([0.1] * 10)  # Simple mock embedding
+    from bot.llm import get_embedding
+    clear_session(user_context.session_id)
+    user_context.messages = []
+    mock_embedding = json.dumps([0.1, 0.2, 0.3])  # Mock embedding data
     
+    # Mock the get_embedding function
     with patch('bot.llm.get_embedding', return_value=mock_embedding):
         save_session_message(
             user_id=user_context.user_id,
             session_id=user_context.session_id,
             role="user",
-            content=test_message,
+            content="Test message for embedding",
             compute_embedding=True
         )
-    
-    # Test adding relevant information
-    with patch('bot.llm.get_embedding', return_value=mock_embedding):
-        new_message = "Test message for context" * 1000
-        user_context.add_relevant_information(new_message)
-    
-    # Verify relevant information was added
-    messages = user_context.messages
+
+        new_message = "Test message for context"
+        user_context.add_relevant_information(new_message, 0)
+
+    assert len(user_context.messages) == 1
     system_messages = [
-        m for m in messages 
+        m for m in user_context.messages 
         if m["role"] == "system" and "Relevant information" in m["content"]
     ]
     assert len(system_messages) > 0

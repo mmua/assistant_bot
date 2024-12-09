@@ -6,7 +6,7 @@ from bot.database.database import (
     get_current_session_id, get_session_messages,
     get_user_messages, save_session_message
 )
-from bot.llm import get_embedding, num_tokens_from_messages, cosine_similarity
+from bot.llm import num_tokens_from_messages, cosine_similarity
 
 
 DEFINE_MIN_CONTEXT_LENGTH = 300
@@ -86,9 +86,10 @@ class SessionContext:
                 }
             ]
 
-    def add_relevant_information(self, user_message):
+    def add_relevant_information(self, user_message, min_context_len=DEFINE_MIN_CONTEXT_LENGTH):
+        from bot.llm import get_embedding
         # ignore too short messages
-        if len(user_message) < DEFINE_MIN_CONTEXT_LENGTH:
+        if len(user_message) < min_context_len:
             return
 
         # Compute embedding of user's input
@@ -96,7 +97,6 @@ class SessionContext:
         if user_input_embedding_json:
             user_input_embedding = json.loads(user_input_embedding_json)
             # Retrieve relevant messages from past sessions
-            assert False
             relevant_contents = get_relevant_messages(self.user_id, user_input_embedding)
             # Include relevant messages in context
             for content in relevant_contents:

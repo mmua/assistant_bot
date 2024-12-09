@@ -1,11 +1,10 @@
-# migrate.py
 import os
 import sqlite3
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import execute_values
 from sqlalchemy import create_engine
-from models import Base
+from bot.database.models import Base
 
 def connect_sqlite():
     sqlite_path = os.getenv("DATABASE_PATH", "./data/bot.db")
@@ -94,6 +93,7 @@ def main():
         migrate_messages(sqlite_conn, pg_conn)
         
         print("Migration completed successfully!")
+        # RESET SEQUENCES
         
     except Exception as e:
         print(f"Error during migration: {e}")
