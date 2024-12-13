@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "assistant-bot"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Telegram bot powered by OpenAI's GPT-4o model."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -21,13 +21,16 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "python-telegram-bot==21.7",
-    "openai==1.55.3",
-    "numpy==2.0.2",
-    "tiktoken==0.8.0",
-    "python-dotenv==1.0.1",
-    "pydub==0.25.1",
-    "salute-speech==1.2.4"
+    "python-telegram-bot>=21.7",
+    "openai>=1.55.3",
+    "numpy>=2.0.2",
+    "tiktoken>=0.8.0",
+    "python-dotenv>=1.0.1",
+    "pydub>=0.25.1",
+    "salute-speech>=1.2.4",
+    "sqlalchemy >= 2.0.36",
+    "alembic>=1.14.0",
+    "psycopg2-binary>=2.9.10"
 ]
 
 [project.urls]
@@ -35,3 +38,11 @@ Homepage = "https://github.com/mmua/assistant_bot"
 
 [project.scripts]
 assistant_bot = "bot.bot:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "pytest-asyncio>=0.24.0",  # If you need to test async functions
+    "coverage>=7.6.9",
+]

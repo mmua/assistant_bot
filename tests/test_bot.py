@@ -1,10 +1,12 @@
-# test_bot.py
-
 import os
-import sqlite3
 import pytest
+from datetime import date
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from bot import (
+from bot.database.models import Base, User, Session, Message
+from bot.database.database import (
     add_user,
     get_user,
     reset_daily_tokens,
@@ -14,98 +16,66 @@ from bot import (
     save_session_message,
     get_current_session_messages,
     clear_session,
+)
+from bot.llm import (
     get_embedding,
     cosine_similarity,
-    get_relevant_messages,
     num_tokens_from_messages,
-    summarize_session,
 )
 
-# Set up a test database
-TEST_DATABASE_PATH = "./test_bot.db"
-conn = sqlite3.connect(TEST_DATABASE_PATH, check_same_thread=False)
-cursor = conn.cursor()
 
-# Override the bot's database connection for testing
-def setup_module(module):
-    cursor.execute("DROP TABLE IF EXISTS users")
-    cursor.execute("DROP TABLE IF EXISTS sessions")
-    cursor.execute("DROP TABLE IF EXISTS messages")
-    # Create tables
-    cursor.execute(
-        """
-    CREATE TABLE users (
-        user_id INTEGER PRIMARY KEY,
-        token_limit INTEGER,
-        tokens_used INTEGER DEFAULT 0,
-        daily_tokens_used INTEGER DEFAULT 0,
-        last_reset DATE
-    )
-    """
-    )
-    cursor.execute(
-        """
-    CREATE TABLE sessions (
-        user_id INTEGER,
-        start_date DATE,
-        end_date DATE,
-        FOREIGN KEY(user_id) REFERENCES users(user_id)
-    )
-    """
-    )
-    cursor.execute(
-        """
-    CREATE TABLE messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        session_id INTEGER,
-        role TEXT,
-        content TEXT,
-        embedding TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(user_id),
-        FOREIGN KEY(session_id) REFERENCES sessions(rowid)
-    )
-    """
-    )
-    conn.commit()
-
-def teardown_module(module):
-    conn.close()
-    os.remove(TEST_DATABASE_PATH)
-
-def test_add_and_get_user():
+def test_add_and_get_user(db_session):
     user_id = 123456
     add_user(user_id)
     user = get_user(user_id)
     assert user is not None
-    assert user[0] == user_id
+    assert user.user_id == user_id
 
-def test_start_new_session():
+def test_start_new_session(db_session):
     user_id = 123456
     session_id = start_new_session(user_id)
     assert session_id is not None
-    cursor.execute("SELECT * FROM sessions WHERE rowid = ?", (session_id,))
-    session = cursor.fetchone()
-    assert session[0] == user_id
+    
+    session = db_session.query(Session).filter(Session.id == session_id).first()
+    assert session.user_id == user_id
+    assert session.start_date == date.today()
 
-def test_save_and_get_messages():
+def test_save_and_get_messages(db_session):
     user_id = 123456
     session_id = get_current_session_id(user_id)
     save_session_message(user_id, session_id, "user", "Hello")
     messages = get_current_session_messages(user_id)
-    assert len(messages) == 1
-    assert messages[0]["content"] == "Hello"
+    
+    # First message is system role from get_assistant_role()
+    assert len(messages) > 1
+    # Find our test message
+    user_messages = [m for m in messages if m["role"] == "user"]
+    assert len(user_messages) == 1
+    assert user_messages[0]["content"] == "Hello"
 
-def test_clear_session():
+def test_clear_session(db_session):
     user_id = 123456
-    clear_session(user_id)
+    session_id = get_current_session_id(user_id)
+    clear_session(session_id)
     messages = get_current_session_messages(user_id)
-    assert len(messages) == 0
+    # Only system message should remain
+    assert len(messages) == 1
+    assert messages[0]["role"] == "system"
 
-# def test_get_embedding():
-#     text = "This is a test."
-#     embedding_json = get_embedding(text)
-#     assert embedding_json is not None
+def test_update_tokens(db_session):
+    user_id = 123456
+    initial_tokens = 555
+    update_tokens(user_id, initial_tokens)
+    user = get_user(user_id)
+    assert user.tokens_used == initial_tokens
+    assert user.daily_tokens_used == initial_tokens
+
+def test_reset_daily_tokens(db_session):
+    user_id = 123456
+    reset_daily_tokens(user_id)
+    user = get_user(user_id)
+    assert user.daily_tokens_used == 0
+    assert user.last_reset == date.today()
 
 def test_cosine_similarity():
     vec_a = [1, 0, 0]
@@ -118,11 +88,19 @@ def test_num_tokens_from_messages():
     tokens = num_tokens_from_messages(messages)
     assert tokens > 0
 
-# def test_summarize_session():
-#     messages = [
-#         {"role": "user", "content": "Hello"},
-#         {"role": "assistant", "content": "Hi, how can I help you?"},
-#     ]
-#     summary = summarize_session(messages)
-#     assert summary != ""
+def test_get_current_session_id(db_session):
+    user_id = 123456
+    session_id = get_current_session_id(user_id)
+    assert session_id is not None
+    
+    # Should return the same session if called again
+    second_session_id = get_current_session_id(user_id)
+    assert session_id == second_session_id
 
+def test_get_current_session_messages_empty(db_session):
+    user_id = 999999  # New user
+    add_user(user_id)
+    messages = get_current_session_messages(user_id)
+    # Should only contain system message
+    assert len(messages) == 1
+    assert messages[0]["role"] == "system"

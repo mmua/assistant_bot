@@ -29,3 +29,6 @@ logs/
 
 # Docker
 docker-compose.override.yml
+.DS_Store
+
+.coverage

@@ -14,7 +14,10 @@ from telegram.ext import (
 from bot.llm import split_text, clean_transcript, DEFAULT_OPENAI_MODEL
 from bot.session import DEFAULT_CONTEXT_TOKENS, SessionContext
 from bot.bot_messages import START_TOKEN, FORGET_TOKEN, NEXT_TOKEN, ERROR_TOKEN, ADD_USER_TOKEN, UNAUTHORIZED_TOKEN, get_bot_message
-from bot.database import add_user, clear_session, close_session, get_user, get_user_messages, start_new_session, update_tokens
+from bot.database.database import (
+    add_user, get_current_session_id, get_user,
+    start_new_session, clear_session, close_session, update_tokens
+)
 from bot.voice_handler import VoiceHandler
 
 # Set up logging
@@ -154,7 +157,8 @@ async def forget_context(update: Update, context: CallbackContext):
     """
     user_id = update.effective_user.id
     if get_user(user_id):
-        clear_session(user_id)
+        session_id = get_current_session_id(user_id)
+        clear_session(session_id)
         # Start a new session
         start_new_session(user_id)
         await update.message.reply_text(get_bot_message(user_id, FORGET_TOKEN))
@@ -259,6 +263,7 @@ async def handle_message(update: Update, context: CallbackContext, override_text
     session_context = SessionContext(user_id)
 
     # Summarize session if needed
+    # FIXME: deals with full history on every request
     session_context.summarize_if_needed()
 
     # Add relevant information based on embeddings
