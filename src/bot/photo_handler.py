@@ -14,10 +14,12 @@ from telegram import PhotoSize
 from telegram.ext import CallbackContext
 from openai import OpenAI
 
+from bot.yandex_auth_manager import YandexAuthManager
+
 class PhotoHandler:
     """Handler for processing photos with various AI capabilities."""
 
-    def __init__(self, openai_api_key: str, yandex_api_key: str, yandex_folder_id: str):
+    def __init__(self, openai_api_key: str, service_account_id: str, yandex_key_id: str, yandex_api_key: str, yandex_folder_id: str):
         """
         Initialize PhotoHandler with necessary API keys and models.
         
@@ -27,7 +29,7 @@ class PhotoHandler:
             yandex_folder_id: Yandex Cloud folder ID
         """
         self.openai_client = OpenAI(api_key=openai_api_key)
-        self.yandex_api_key = yandex_api_key
+        self.yandex_auth = YandexAuthManager(service_account_id, yandex_key_id, yandex_api_key)
         self.yandex_folder_id = yandex_folder_id
         self.yandex_ocr_url = "https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText"
 
@@ -132,6 +134,15 @@ class PhotoHandler:
             logging.error(f"Error processing photo: {e}")
             return self.get_error_message()
 
+    def _get_iam_token(self) -> str:
+        """Get IAM token from Yandex Cloud."""
+        response = requests.post(
+            'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+            json={'yandexPassportOauthToken': self.yandex_api_key}
+        )
+        response.raise_for_status()
+        return response.json()['iamToken']
+
     def _prepare_yandex_ocr_request(self, photo_file: BinaryIO) -> Tuple[dict, dict]:
         """Prepare request body and headers for Yandex OCR API."""
         # Read and encode image
@@ -144,10 +155,13 @@ class PhotoHandler:
             "languageCodes": ["*"],
             "content": encoded_image
         }
+
+        # Get fresh IAM token
+        iam_token = self._get_iam_token()
         
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.yandex_api_key}",
+            "Authorization": f"Bearer {iam_token}",
             "x-folder-id": self.yandex_folder_id,
             "x-data-logging-enabled": "true"
         }

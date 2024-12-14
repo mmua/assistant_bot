@@ -32,6 +32,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SBER_SPEECH_API_KEY = os.getenv("SBER_SPEECH_API_KEY")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
+YANDEX_SERVICE_ACCOUNT_ID = os.getenv("YANDEX_SERVICE_ACCOUNT_ID")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 
@@ -46,6 +47,7 @@ voice_handler = VoiceHandler(SBER_SPEECH_API_KEY)
 # Initialize Photo Handler
 photo_handler = PhotoHandler(
     openai_api_key=OPENAI_API_KEY,
+    service_account_id=YANDEX_SERVICE_ACCOUNT_ID,
     yandex_api_key=YANDEX_API_KEY,
     yandex_folder_id=YANDEX_FOLDER_ID
 )
