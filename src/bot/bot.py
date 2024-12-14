@@ -19,6 +19,8 @@ from bot.database.database import (
     start_new_session, clear_session, close_session, update_tokens
 )
 from bot.voice_handler import VoiceHandler
+from bot.photo_handler import PhotoHandler
+
 
 # Set up logging
 logging.basicConfig(
@@ -30,16 +32,23 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SBER_SPEECH_API_KEY = os.getenv("SBER_SPEECH_API_KEY")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
 # Initialize OpenAI API
 openai.api_key = OPENAI_API_KEY
 
-
 # Initialize Voice Handler
 voice_handler = VoiceHandler(SBER_SPEECH_API_KEY)
 
+# Initialize Photo Handler
+photo_handler = PhotoHandler(
+    openai_api_key=OPENAI_API_KEY,
+    yandex_api_key=YANDEX_API_KEY,
+    yandex_folder_id=YANDEX_FOLDER_ID
+)
 
 def get_forwarded_message_author(update: Update) -> str:
     """
@@ -222,6 +231,54 @@ async def handle_voice(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Вот, что я услышал:\n{transcript}")
         await handle_message(update, context, override_text=cleaned_transcript)
 
+async def handle_photo(update: Update, context: CallbackContext):
+    """
+    Process photos sent to the bot, handling them based on caption or content.
+    
+    Supports:
+    - Text extraction (OCR) from images
+    - Diagram to PlantUML conversion
+    - Presentation slide analysis
+    - General image content analysis
+    
+    The processing type is determined automatically from the caption
+    or defaults to OCR if no caption is provided.
+    """
+    user_id = update.effective_user.id
+    
+    if not get_user(user_id):
+        await update.message.reply_text(get_bot_message(user_id, UNAUTHORIZED_TOKEN))
+        return
+
+    # Get the largest version of the photo
+    photo = update.message.photo[-1]
+    caption = update.message.caption
+    
+    await update.message.reply_text(photo_handler.get_progress_message())
+
+    try:
+        # Download and process the photo
+        photo_file = await photo_handler.download_photo(photo, context)
+        if not photo_file:
+            await update.message.reply_text(photo_handler.get_error_message())
+            return
+
+        # Process the photo based on caption
+        result = await photo_handler.process_photo(photo_file, caption)
+        
+        # Split and send response if needed
+        messages = split_text(result, MAX_TELEGRAM_MESSAGE_LENGTH)
+        for msg in messages:
+            await update.message.reply_text(msg)
+
+    except Exception as e:
+        logging.error(f"Error processing photo: {e}")
+        await update.message.reply_text(get_bot_message(user_id, ERROR_TOKEN))
+    finally:
+        if photo_file:
+            photo_file.close()
+
+
 # Message handler
 async def handle_message(update: Update, context: CallbackContext, override_text: str = None):
     """
@@ -293,7 +350,6 @@ async def handle_message(update: Update, context: CallbackContext, override_text
         await update.message.reply_text(get_bot_message(user_id, ERROR_TOKEN))
 
 
-
 def main():
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -304,7 +360,7 @@ def main():
 
     # Add voice message handler
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
