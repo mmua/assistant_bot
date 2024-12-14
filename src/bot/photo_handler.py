@@ -6,13 +6,13 @@ import tempfile
 import base64
 from io import BytesIO
 from pathlib import Path
-from typing import BinaryIO, Optional, Tuple
+from typing import BinaryIO, Optional, Tuple, List
 
 import requests
 from PIL import Image
 from telegram import PhotoSize
 from telegram.ext import CallbackContext
-import openai
+from openai import OpenAI
 
 class PhotoHandler:
     """Handler for processing photos with various AI capabilities."""
@@ -26,17 +26,50 @@ class PhotoHandler:
             yandex_api_key: Yandex Cloud API key
             yandex_folder_id: Yandex Cloud folder ID
         """
-        self.openai = openai
-        self.openai.api_key = openai_api_key
+        self.openai_client = OpenAI(api_key=openai_api_key)
         self.yandex_api_key = yandex_api_key
         self.yandex_folder_id = yandex_folder_id
         self.yandex_ocr_url = "https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText"
+
+    def _encode_image(self, photo_file: BinaryIO) -> str:
+        """
+        Encode image file to base64.
+
+        Args:
+            photo_file: Image file object
+
+        Returns:
+            Base64 encoded image string
+        """
+        return base64.b64encode(photo_file.read()).decode('utf-8')
+
+    def _prepare_image_content(self, photo_file: BinaryIO, detail: str = "auto") -> dict:
+        """
+        Prepare image content for OpenAI API.
+
+        Args:
+            photo_file: Image file object
+            detail: Detail level ('low', 'high', or 'auto')
+
+        Returns:
+            Dictionary with image content
+        """
+        base64_image = self._encode_image(photo_file)
+        photo_file.seek(0)  # Reset file pointer for potential reuse
+
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image}",
+                "detail": detail
+            }
+        }
 
     async def download_photo(self, photo: PhotoSize, context: CallbackContext) -> Optional[BinaryIO]:
         """Download photo and return it as a file-like object."""
         try:
             photo_file = await context.bot.get_file(photo.file_id)
-            
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_dir_path = Path(temp_dir)
                 assert os.path.exists(temp_dir_path)
@@ -56,18 +89,24 @@ class PhotoHandler:
             return "ocr", {}
 
         try:
-            response = await self.openai.chat.completions.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": """Analyze the image caption and determine the processing intent.
-                    Return a JSON object with two fields:
-                    - tool: "ocr" | "diagram" | "presentation" | "analyze"
-                    - params: additional parameters for processing"""},
-                    {"role": "user", "content": caption}
-                ]
+                    {
+                        "role": "system",
+                        "content": """Analyze the image caption and determine the processing intent.
+                        Return a JSON object with two fields:
+                        - tool: "ocr" | "diagram" | "presentation" | "analyze"
+                        - params: additional parameters for processing"""
+                    },
+                    {
+                        "role": "user",
+                        "content": caption
+                    }
+                ],
+                max_tokens=100
             )
             result = response.choices[0].message.content
-            logging.error(f"{result}")
             intent = eval(result)  # Safe as we control the input
             return intent["tool"], intent.get("params", {})
         except Exception as e:
@@ -98,6 +137,7 @@ class PhotoHandler:
         # Read and encode image
         image_content = photo_file.read()
         encoded_image = base64.b64encode(image_content).decode('utf-8')
+        photo_file.seek(0)  # Reset file pointer for potential reuse
         
         data = {
             "mimeType": "image/jpeg",
@@ -127,15 +167,13 @@ class PhotoHandler:
             response.raise_for_status()
             
             result = response.json()
-            
-            # Extract text from response
+
             try:
                 blocks = result['result']['text_annotation']['blocks']
                 extracted_text = []
                 
                 for block in blocks:
                     for line in block.get('lines', []):
-                        # Get the first (best) alternative
                         if line.get('alternatives'):
                             line_text = line['alternatives'][0]['text']
                             extracted_text.append(line_text)
@@ -153,8 +191,10 @@ class PhotoHandler:
     async def process_diagram(self, photo_file: BinaryIO, params: dict = None) -> str:
         """Convert diagram to specified format (e.g., PlantUML)."""
         try:
-            response = await self.openai.chat.completions.create(
-                model="gpt-4-vision-preview",
+            image_content = self._prepare_image_content(photo_file, detail="high")
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -163,11 +203,12 @@ class PhotoHandler:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "image", "image": photo_file},
-                            {"type": "text", "text": "Convert this diagram"}
+                            {"type": "text", "text": "Convert this diagram"},
+                            image_content
                         ]
                     }
-                ]
+                ],
+                max_tokens=300
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -177,8 +218,10 @@ class PhotoHandler:
     async def analyze_presentation(self, photo_file: BinaryIO, params: dict = None) -> str:
         """Analyze presentation slide content."""
         try:
-            response = await self.openai.chat.completions.create(
-                model="gpt-4-vision-preview",
+            image_content = self._prepare_image_content(photo_file, detail="high")
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -187,11 +230,12 @@ class PhotoHandler:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "image", "image": photo_file},
-                            {"type": "text", "text": "What's on this slide?"}
+                            {"type": "text", "text": "What's on this slide?"},
+                            image_content
                         ]
                     }
-                ]
+                ],
+                max_tokens=300
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -201,8 +245,11 @@ class PhotoHandler:
     async def analyze_image(self, photo_file: BinaryIO, params: dict = None) -> str:
         """Perform general image analysis."""
         try:
-            response = await self.openai.chat.completions.create(
-                model="gpt-4-vision-preview",
+            detail = params.get('detail', 'auto') if params else 'auto'
+            image_content = self._prepare_image_content(photo_file, detail=detail)
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -211,11 +258,12 @@ class PhotoHandler:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "image", "image": photo_file},
-                            {"type": "text", "text": "What's in this image?"}
+                            {"type": "text", "text": "What's in this image?"},
+                            image_content
                         ]
                     }
-                ]
+                ],
+                max_tokens=300
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -237,3 +285,4 @@ class PhotoHandler:
             "Oh dear, the frost has clouded my vision. Another attempt, perhaps?",
             "My frozen friend, this image eludes my understanding. Would you share it once more?",
         ])
+    

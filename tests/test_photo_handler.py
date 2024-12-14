@@ -207,12 +207,10 @@ class TestPhotoHandlerIntentAnalysis:
     ])
     async def test_specific_intents(self, handler, caption, gpt_response, expected):
         # Arrange
-        async def mock_completion(*args, **kwargs):
-            return Mock(
-                choices=[Mock(message=Mock(content=gpt_response))]
-            )
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content=gpt_response))]
         
-        with patch('openai.chat.completions.create', new=AsyncMock(side_effect=mock_completion)):
+        with patch.object(handler.openai_client.chat.completions, 'create', return_value=mock_response):
             # Act
             result = await handler.analyze_intent(caption)
             
@@ -246,3 +244,198 @@ class TestPhotoHandlerMessages:
         winter_words = {"frost", "snow", "winter", "frozen"}
         message = handler.get_progress_message().lower()
         assert any(word in message for word in winter_words)
+
+class TestImageContentPreparation:
+    """Tests for image content preparation methods."""
+
+    def test_encode_image(self, handler, sample_image):
+        # Act
+        result = handler._encode_image(sample_image)
+        
+        # Assert
+        assert isinstance(result, str)
+        assert len(result) > 0
+        # Verify it's valid base64
+        assert base64.b64decode(result)
+        
+    @pytest.mark.parametrize("detail,expected_detail", [
+        ("auto", "auto"),
+        ("high", "high"),
+        ("low", "low")
+    ])
+    def test_prepare_image_content(self, handler, sample_image, detail, expected_detail):
+        # Act
+        result = handler._prepare_image_content(sample_image, detail=detail)
+        
+        # Assert
+        assert result["type"] == "image_url"
+        assert result["image_url"]["detail"] == expected_detail
+        assert result["image_url"]["url"].startswith("data:image/jpeg;base64,")
+        
+        # Verify file pointer is reset
+        assert sample_image.tell() == 0
+        
+class TestProcessDiagram:
+    """Tests for diagram processing functionality."""
+    
+    @pytest.mark.asyncio
+    async def test_successful_diagram_processing(self, handler, sample_image):
+        # Arrange
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content="@startuml\nclass Test\n@enduml"))]
+        
+        with patch.object(handler.openai_client.chat.completions, 'create', return_value=mock_response):
+            # Act
+            result = await handler.process_diagram(sample_image)
+            
+            # Assert
+            assert "@startuml" in result
+            assert "@enduml" in result
+            
+    @pytest.mark.asyncio
+    async def test_failed_diagram_processing(self, handler, sample_image):
+        # Arrange
+        with patch.object(handler.openai_client.chat.completions, 'create', side_effect=Exception("API Error")):
+            # Act
+            result = await handler.process_diagram(sample_image)
+            
+            # Assert
+            assert "Error" in result
+
+class TestPresentationAnalysis:
+    """Tests for presentation slide analysis."""
+    
+    @pytest.mark.asyncio
+    async def test_successful_presentation_analysis(self, handler, sample_image):
+        # Arrange
+        expected_analysis = "The slide contains a title and three bullet points..."
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content=expected_analysis))]
+        
+        with patch.object(handler.openai_client.chat.completions, 'create', return_value=mock_response):
+            # Act
+            result = await handler.analyze_presentation(sample_image)
+            
+            # Assert
+            assert result == expected_analysis
+            
+    @pytest.mark.asyncio
+    async def test_failed_presentation_analysis(self, handler, sample_image):
+        # Arrange
+        with patch.object(handler.openai_client.chat.completions, 'create', side_effect=Exception("API Error")):
+            # Act
+            result = await handler.analyze_presentation(sample_image)
+            
+            # Assert
+            assert "Error" in result
+
+class TestImageAnalysis:
+    """Tests for general image analysis."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("params,expected_detail", [
+        (None, "auto"),
+        ({}, "auto"),
+        ({"detail": "high"}, "high"),
+        ({"detail": "low"}, "low"),
+    ])
+    async def test_image_analysis_detail_levels(self, handler, sample_image, params, expected_detail):
+        # Arrange
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content="Image analysis result"))]
+        
+        with patch.object(handler.openai_client.chat.completions, 'create') as mock_create:
+            mock_create.return_value = mock_response
+            
+            # Act
+            await handler.analyze_image(sample_image, params)
+            
+            # Assert
+            args = mock_create.call_args[1]
+            content = args["messages"][1]["content"][1]["image_url"]["detail"]
+            assert content == expected_detail
+            
+    @pytest.mark.asyncio
+    async def test_successful_image_analysis(self, handler, sample_image):
+        # Arrange
+        expected_analysis = "The image shows a white background..."
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content=expected_analysis))]
+        
+        with patch.object(handler.openai_client.chat.completions, 'create', return_value=mock_response):
+            # Act
+            result = await handler.analyze_image(sample_image)
+            
+            # Assert
+            assert result == expected_analysis
+            
+    @pytest.mark.asyncio
+    async def test_failed_image_analysis(self, handler, sample_image):
+        # Arrange
+        with patch.object(handler.openai_client.chat.completions, 'create', side_effect=Exception("API Error")):
+            # Act
+            result = await handler.analyze_image(sample_image)
+            
+            # Assert
+            assert "Error" in result
+
+class TestPhotoProcessing:
+    """Tests for the main photo processing pipeline."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("caption,tool,expected_result", [
+        (None, "ocr", "Hello\nWorld"),
+        ("convert to diagram", "diagram", "@startuml\nclass Test\n@enduml"),
+        ("analyze slide", "presentation", "Slide analysis"),
+        ("what's in this image", "analyze", "Image description"),
+    ])
+    async def test_process_photo_pipeline(self, handler, sample_image, caption, tool, expected_result):
+        # Arrange
+        mock_intent_response = Mock()
+        mock_intent_response.choices = [Mock(message=Mock(content=f"{{'tool': '{tool}', 'params': {{}}}}"))]
+        
+        mock_processing_response = Mock()
+        mock_processing_response.choices = [Mock(message=Mock(content=expected_result))]
+        
+        # Mock for Yandex OCR
+        mock_ocr_response = {
+            "result": {
+                "text_annotation": {
+                    "blocks": [{
+                        "lines": [{
+                            "alternatives": [{
+                                "text": "Hello"
+                            }]
+                        }, {
+                            "alternatives": [{
+                                "text": "World"
+                            }]
+                        }]
+                    }]
+                }
+            }
+        }
+        
+        with patch.object(handler.openai_client.chat.completions, 'create', side_effect=[mock_intent_response, mock_processing_response]), \
+             patch('requests.post') as mock_post:
+            
+            mock_post.return_value = Mock(
+                json=Mock(return_value=mock_ocr_response),
+                raise_for_status=Mock()
+            )
+            
+            # Act
+            result = await handler.process_photo(sample_image, caption)
+            
+            # Assert
+            assert result == expected_result
+            
+    @pytest.mark.asyncio
+    async def test_process_photo_with_intent_error(self, handler, sample_image):
+        # Arrange
+        with patch.object(handler.openai_client.chat.completions, 'create', side_effect=Exception("API Error")):
+            # Act
+            result = await handler.process_photo(sample_image, "invalid caption")
+            
+            # Assert
+            assert any(err in result for err in ["Error", "Alas", "Oh dear"])
