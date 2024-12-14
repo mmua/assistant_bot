@@ -1,6 +1,6 @@
 import time
-import jwt
 import json
+import jwt
 import requests
 from dataclasses import dataclass
 from typing import Optional
@@ -32,16 +32,26 @@ class YandexAuthManager:
                 service_account_id=data['service_account_id']
             )
 
-    def _prepare_private_key(self, pem_data: str) -> str:
-        """Convert private key to proper PEM format if needed."""
-        if not pem_data.startswith('-----BEGIN PRIVATE KEY-----'):
-            # Add PEM headers and footers if they're missing
-            pem_lines = ['-----BEGIN PRIVATE KEY-----']
-            # Split the base64 string into 64-character lines
-            pem_lines.extend([pem_data[i:i+64] for i in range(0, len(pem_data), 64)])
-            pem_lines.append('-----END PRIVATE KEY-----')
-            return '\n'.join(pem_lines)
-        return pem_data
+    def _prepare_private_key(self, pem_data: str) -> bytes:
+        """Convert Yandex private key to proper format."""
+        # Add PEM markers if they're not present
+        if not pem_data.startswith('-----'):
+            pem_data = f"-----BEGIN PRIVATE KEY-----\n{pem_data}\n-----END PRIVATE KEY-----"
+        
+        # Load and convert the key
+        private_key = serialization.load_pem_private_key(
+            pem_data.encode(),
+            password=None,
+        )
+        
+        # Convert to PKCS8 format
+        private_key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        return private_key_bytes
 
     def _generate_jwt(self) -> str:
         """Generate a JWT token for Yandex Cloud."""
@@ -53,24 +63,23 @@ class YandexAuthManager:
             'exp': now + 3600
         }
 
-        # Prepare private key in proper format
-        private_key_pem = self._prepare_private_key(self.service_account.private_key)
-        
         try:
-            # Load the private key for use with PyJWT
-            key = load_pem_private_key(
-                private_key_pem.encode(),
-                password=None
+            # Get the private key ready for signing
+            private_key = self._prepare_private_key(self.service_account.private_key)
+            
+            # Generate the JWT
+            jwt_token = jwt.encode(
+                payload,
+                private_key,
+                algorithm='PS256',
+                headers={'kid': self.service_account.key_id}
             )
-        except ValueError as e:
-            raise ValueError(f"Invalid private key format: {e}")
-
-        return jwt.encode(
-            payload,
-            key,
-            algorithm='PS256',
-            headers={'kid': self.service_account.key_id}
-        )
+            
+            return jwt_token
+            
+        except Exception as e:
+            logging.error(f"Error generating JWT: {e}")
+            raise
 
     def _get_iam_token(self) -> str:
         """Exchange JWT for IAM token."""
