@@ -16,6 +16,53 @@ from openai import OpenAI
 
 from bot.yandex_auth_manager import YandexAuthManager
 
+def parse_yandex_ocr_response(response: dict):
+    # Initialize the results dictionary
+    parsed_result = {
+        "full_text": "",
+        "blocks": []
+    }
+
+    # Safely access textAnnotation part of the response
+    text_annotation = response.get("result", {}).get("textAnnotation", {})
+    
+    # Extract the full recognized text if available
+    full_text = text_annotation.get("fullText", "")
+    parsed_result["full_text"] = full_text.strip()
+
+    # Iterate through blocks
+    blocks = text_annotation.get("blocks", [])
+    for block in blocks:
+        block_info = {
+            "block_bounding_box": extract_bounding_box(block.get("boundingBox", {})),
+            "lines": []
+        }
+
+        # Iterate through lines in each block
+        lines = block.get("lines", [])
+        for line in lines:
+            line_info = {
+                "line_text": line.get("text", "").strip(),
+                "line_bounding_box": extract_bounding_box(line.get("boundingBox", {})),
+                "words": []
+            }
+
+            # Extract words from the line
+            words = line.get("words", [])
+            for word in words:
+                word_text = word.get("text", "").strip()
+                word_bbox = extract_bounding_box(word.get("boundingBox", {}))
+                line_info["words"].append({
+                    "text": word_text,
+                    "bounding_box": word_bbox
+                })
+            
+            block_info["lines"].append(line_info)
+
+        parsed_result["blocks"].append(block_info)
+
+    return parsed_result
+
 class PhotoHandler:
     """Handler for processing photos with various AI capabilities."""
 
@@ -174,17 +221,8 @@ class PhotoHandler:
             result = response.json()
 
             try:
-                blocks = result['result']['text_annotation']['blocks']
-                extracted_text = []
-                
-                for block in blocks:
-                    for line in block.get('lines', []):
-                        if line.get('alternatives'):
-                            line_text = line['alternatives'][0]['text']
-                            extracted_text.append(line_text)
-                
-                text = '\n'.join(extracted_text)
-                return text if text else "No text found in the image"
+                parsed_result = parse_yandex_ocr_response(result)
+                return parsed_result['text']
             except (KeyError, IndexError) as e:
                 logging.error(f"Error parsing Yandex OCR response: {e}")
                 return "No text found in the image"
