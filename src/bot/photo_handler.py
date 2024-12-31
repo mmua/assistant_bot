@@ -16,6 +16,19 @@ from openai import OpenAI
 
 from bot.yandex_auth_manager import YandexAuthManager
 
+def extract_bounding_box(bbox_dict: dict):
+    # Extracts bounding box coordinates as integers
+    # from the nested vertex structure of the response
+    vertices = bbox_dict.get("vertices", [])
+    # Expecting a list of up to 4 vertices
+    # We will return them as a list of tuples: [(x1,y1), (x2,y2), ...]
+    parsed_vertices = []
+    for vertex in vertices:
+        x = int(vertex.get("x", 0))
+        y = int(vertex.get("y", 0))
+        parsed_vertices.append((x, y))
+    return parsed_vertices
+
 def parse_yandex_ocr_response(response: dict):
     # Initialize the results dictionary
     parsed_result = {
@@ -222,7 +235,7 @@ class PhotoHandler:
 
             try:
                 parsed_result = parse_yandex_ocr_response(result)
-                return parsed_result['text']
+                return parsed_result['full_text']
             except (KeyError, IndexError) as e:
                 logging.error(f"Error parsing Yandex OCR response: {e}")
                 return "No text found in the image"
