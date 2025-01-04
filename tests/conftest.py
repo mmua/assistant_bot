@@ -1,7 +1,10 @@
 # conftest.py
 import pytest
+from datetime import datetime, date
 from sqlalchemy.pool import StaticPool
 from bot.database.database import DatabaseConnection
+from bot.database.models import User
+
 
 @pytest.fixture(scope="session", autouse=True)
 def test_db():
@@ -32,11 +35,15 @@ def db_session(test_db):
         session.rollback()  # Rollback to the savepoint
         session.close()  # Clear session cache
 
-@pytest.fixture
+class UniqueIdGenerator:
+    def __init__(self):
+        self._current = 10000
+        
+    def __call__(self):
+        self._current += 1
+        return self._current
+
+@pytest.fixture(scope="session")
 def user_id_generator():
     """Generate unique user IDs for tests."""
-    def _generate():
-        _generate.current += 1
-        return _generate.current
-    _generate.current = 10000
-    return _generate
+    return UniqueIdGenerator()
