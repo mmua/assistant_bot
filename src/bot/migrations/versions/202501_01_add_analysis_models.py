@@ -7,8 +7,8 @@ from datetime import datetime
 
 
 # revision identifiers
-revision = '202501_01'
-down_revision = None  # Replace with your previous migration revision ID
+revision = '202501_01_analysis'
+down_revision = '940cb4a06c84'  # Replace with your previous migration revision ID
 branch_labels = None
 depends_on = None
 
