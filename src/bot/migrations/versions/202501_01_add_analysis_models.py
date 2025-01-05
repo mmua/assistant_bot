@@ -14,9 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create TaskStatus enum type
+    # Create TaskStatus enum type with proper name
     op.execute("""
-        CREATE TYPE taskstatus AS ENUM (
+        CREATE TYPE task_status AS ENUM (
             'pending',
             'in_progress',
             'completed',
@@ -24,9 +24,9 @@ def upgrade() -> None:
         )
     """)
 
-    # Create TaskPriority enum type
+    # Create TaskPriority enum type with proper name
     op.execute("""
-        CREATE TYPE taskpriority AS ENUM (
+        CREATE TYPE task_priority AS ENUM (
             'low',
             'medium',
             'high',
@@ -56,8 +56,12 @@ def upgrade() -> None:
         sa.Column('analysis_id', sa.Integer(), sa.ForeignKey('daily_analyses.id', ondelete='CASCADE')),
         sa.Column('title', sa.String(), nullable=False),
         sa.Column('description', sa.Text()),
-        sa.Column('status', sa.Enum('taskstatus'), server_default='pending'),
-        sa.Column('priority', sa.Enum('taskpriority'), server_default='medium'),
+        sa.Column('status', sa.Enum('pending', 'in_progress', 'completed', 'cancelled',
+                                  name='task_status', create_type=False), 
+                 server_default='pending'),
+        sa.Column('priority', sa.Enum('low', 'medium', 'high', 'urgent',
+                                    name='task_priority', create_type=False),
+                 server_default='medium'),
         sa.Column('due_date', sa.DateTime()),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('completed_at', sa.DateTime()),

@@ -4,19 +4,28 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
 import os
-from bot.database.models import Base  # Import your models
+from bot.database.models import Base
 
 # this is the Alembic Config object
 config = context.config
 
-# Get DB URL from environment
-def get_url():
-    return os.getenv("DATABASE_URL")
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
 
 # Set up target metadata
 target_metadata = Base.metadata
 
+def get_url():
+    """Get DB URL from environment"""
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("DATABASE_URL environment variable is not set")
+    return url
+
 def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode."""
     url = get_url()
     context.configure(
         url=url,
@@ -29,7 +38,9 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 def run_migrations_online() -> None:
-    configuration = config.get_section(config.config_ini_section)
+    """Run migrations in 'online' mode."""
+    # Override sqlalchemy.url in configuration
+    configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = get_url()
     
     connectable = engine_from_config(
@@ -46,3 +57,8 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
